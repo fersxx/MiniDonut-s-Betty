@@ -1,0 +1,5 @@
+{
+  "name": "MiniDonuts Betty",
+  "description": "Una aplicación web para una tienda de mini donuts que permite a los clientes personalizar sus postres y a los administradores gestionar el negocio, incluyendo finanzas, inventario y usuarios.",
+  "requestFramePermissions": []
+}
