@@ -1,6 +1,5 @@
-
 import React, { useContext, useState, useMemo } from 'react';
-import { AppContext } from '../../context/AppContext';
+import { AppContext, View } from '../../context/AppContext';
 import { CustomDessert, BasicProduct } from '../../types';
 
 const ConfirmationModal: React.FC<{onConfirm: () => void; onCancel: () => void;}> = ({ onConfirm, onCancel }) => {
@@ -27,37 +26,38 @@ const ConfirmationModal: React.FC<{onConfirm: () => void; onCancel: () => void;}
 
 const ShoppingCart: React.FC = () => {
   const { state, dispatch } = useContext(AppContext);
-  const { shoppingCart, currentUser, adminPhoneNumber, deliveryFee, adminCardNumber } = state;
+  const { shoppingCart, currentUser, settings } = state;
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'transfer' | 'cash'>('transfer');
   const [deliveryMethod, setDeliveryMethod] = useState<'pickup' | 'delivery'>('pickup');
 
 
-  const subtotal = useMemo(() => shoppingCart.reduce((sum, item) => sum + item.price, 0), [shoppingCart]);
-  const finalTotal = useMemo(() => deliveryMethod === 'delivery' ? subtotal + deliveryFee : subtotal, [subtotal, deliveryMethod, deliveryFee]);
+  const subtotal = useMemo(() => shoppingCart.reduce((sum, item) => sum + (item.price * item.quantity), 0), [shoppingCart]);
+  const finalTotal = useMemo(() => deliveryMethod === 'delivery' ? subtotal + settings.deliveryFee : subtotal, [subtotal, deliveryMethod, settings.deliveryFee]);
 
   const handlePlaceOrder = () => {
       if (!currentUser) return;
       
       const itemsText = shoppingCart.map(item => {
+          const lineItemTotal = item.price * item.quantity;
           if (item.isCustom) {
               const details = [
                   item.base.name,
                   item.filling?.name,
-                  item.frosting.name,
+                  item.frosting?.name,
                   item.toppings.length > 0 ? `Toppings: ${item.toppings.map(t => t.name).join(', ')}` : null,
                   item.decorations.length > 0 ? `Decoración: ${item.decorations.map(d => d.name).join(', ')}` : null
               ].filter(Boolean).join(' | ');
-              return `- Postre Personalizado: (${details}) - $${item.price.toFixed(2)}`;
+              return `- ${item.quantity} x Postre Personalizado (${details}) - $${lineItemTotal.toFixed(2)}`;
           }
-          return `- ${item.name} - $${item.price.toFixed(2)}`;
+          return `- ${item.quantity} x ${item.name} - $${lineItemTotal.toFixed(2)}`;
       }).join('\n');
 
       const deliveryText = deliveryMethod === 'delivery' ? 
-        `*Entrega:* Envío a domicilio (+$${deliveryFee.toFixed(2)})` : 
+        `*Entrega:* Envío a domicilio (+$${settings.deliveryFee.toFixed(2)})` : 
         `*Entrega:* Recoger en sucursal`;
       
-      const paymentText = `*Pago:* ${paymentMethod === 'transfer' ? `Transferencia (a la tarjeta ${adminCardNumber})` : 'Efectivo'}`;
+      const paymentText = `*Pago:* ${paymentMethod === 'transfer' ? `Transferencia (a la tarjeta ${settings.adminCardNumber})` : 'Efectivo'}`;
 
       const message = `¡Nuevo pedido de MiniDonuts Betty!
 
@@ -76,30 +76,44 @@ ${paymentText}
 
 Por favor, confirma el tiempo de entrega.`;
       
-      const whatsappUrl = `https://wa.me/${adminPhoneNumber}?text=${encodeURIComponent(message)}`;
-
+      const whatsappUrl = `https://wa.me/${settings.adminPhoneNumber}?text=${encodeURIComponent(message)}`;
       window.open(whatsappUrl, '_blank');
       
-      dispatch({type: 'PLACE_ORDER', payload: { paymentMethod, deliveryMethod }});
+      // Dispatch a single action to handle order creation and state updates
+      dispatch({
+          type: 'PLACE_ORDER',
+          payload: {
+              userId: currentUser.id,
+              items: shoppingCart,
+              total: finalTotal,
+              orderDate: new Date(),
+              status: 'pending',
+              paymentMethod,
+              deliveryMethod,
+          }
+      });
+
       setShowConfirmModal(false);
   };
 
   const renderCartItem = (item: CustomDessert | BasicProduct, index: number) => {
+    const lineItemTotal = item.price * item.quantity;
     return (
       <div key={index} className="flex justify-between items-start p-4 border-b border-stone-200/75">
           <div>
               <h4 className="font-bold text-stone-800">{item.name}</h4>
+              <p className="text-sm text-stone-600">{item.quantity} x ${item.price.toFixed(2)} c/u</p>
               {item.isCustom && (
-                  <ul className="text-sm text-stone-600 list-disc list-inside">
+                  <ul className="text-sm text-stone-600 list-disc list-inside mt-1">
                       <li>Base: {item.base.name}</li>
                       {item.filling && <li>Relleno: {item.filling.name}</li>}
-                      <li>Frosting: {item.frosting.name}</li>
+                      {item.frosting && <li>Frosting: {item.frosting.name}</li>}
                       {item.toppings.length > 0 && <li>Toppings: {item.toppings.map(t => t.name).join(', ')}</li>}
                       {item.decorations.length > 0 && <li>Decoraciones: {item.decorations.map(d => d.name).join(', ')}</li>}
                   </ul>
               )}
           </div>
-          <p className="font-semibold text-stone-800">${item.price.toFixed(2)}</p>
+          <p className="font-semibold text-stone-800">${lineItemTotal.toFixed(2)}</p>
       </div>
     )
   };
@@ -123,7 +137,7 @@ Por favor, confirma el tiempo de entrega.`;
                             </label>
                              <label className={`flex items-center p-3 border-2 rounded-lg cursor-pointer transition-colors ${deliveryMethod === 'delivery' ? 'border-rose-500 bg-rose-50/80' : 'bg-white border-stone-200/75'}`}>
                                 <input type="radio" name="delivery" value="delivery" checked={deliveryMethod === 'delivery'} onChange={() => setDeliveryMethod('delivery')} className="w-4 h-4 mr-3 accent-rose-600" />
-                                Envío a domicilio (+${deliveryFee.toFixed(2)})
+                                Envío a domicilio (+${settings.deliveryFee.toFixed(2)})
                             </label>
                         </div>
                     </div>
@@ -142,7 +156,7 @@ Por favor, confirma el tiempo de entrega.`;
                         </div>
                          <div className="mt-4 text-sm p-3 rounded-md bg-amber-100 text-stone-800">
                             {paymentMethod === 'transfer' ? (
-                                <p>Por favor, realiza la transferencia al siguiente número de tarjeta: <strong className="font-mono block text-center text-base mt-1">{adminCardNumber}</strong></p>
+                                <p>Por favor, realiza la transferencia al siguiente número de tarjeta: <strong className="font-mono block text-center text-base mt-1">{settings.adminCardNumber}</strong></p>
                             ) : (
                                 <p>El pago se realiza al momento de recibir tu pedido.</p>
                             )}
@@ -152,7 +166,7 @@ Por favor, confirma el tiempo de entrega.`;
                     <div className="p-4 bg-amber-50/50 space-y-2">
                         <div className="flex justify-between text-stone-700"><span>Subtotal:</span><span>${subtotal.toFixed(2)}</span></div>
                          {deliveryMethod === 'delivery' && (
-                             <div className="flex justify-between text-stone-700"><span>Envío:</span><span>${deliveryFee.toFixed(2)}</span></div>
+                             <div className="flex justify-between text-stone-700"><span>Envío:</span><span>${settings.deliveryFee.toFixed(2)}</span></div>
                          )}
                         <div className="flex justify-between items-center font-bold text-lg border-t border-stone-200 pt-2 text-rose-800">
                             <span>Total:</span>

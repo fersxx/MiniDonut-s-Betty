@@ -18,7 +18,7 @@
       }
       .bg-pattern {
         background-color: #FEF3C7; /* amber-100 */
-        background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23FDE68A' fill-opacity='0.4'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+        background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23FDE68A' fill-opacity='0.4'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
       }
       .title-gradient {
         @apply bg-clip-text text-transparent bg-gradient-to-r from-rose-500 to-pink-600;
@@ -30,13 +30,23 @@
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
     "react/": "https://aistudiocdn.com/react@^19.2.0/",
     "react": "https://aistudiocdn.com/react@^19.2.0",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.27.0"
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.27.0",
+    "firebase/": "https://aistudiocdn.com/firebase@^12.5.0/",
+    "@firebase/firestore": "https://aistudiocdn.com/@firebase/firestore@^4.9.2"
   }
 }
 </script>
 </head>
   <body>
     <div id="root"></div>
+
+    <!-- Seed Data (used for one-time data loading if localStorage is empty) -->
+    <script id="offers-seed-data" type="application/json">[{"id":"offer-1","title":"¡Miércoles de 2x1!","description":"Todos los miércoles, compra un postre personalizado y llévate el segundo de igual o menor valor ¡totalmente gratis! No aplica con otras promociones."},{"id":"offer-2","title":"Descuento para Estudiantes","description":"Presenta tu credencial de estudiante vigente y obtén un 10% de descuento en tu compra total. Válido de lunes a viernes."}]</script>
+    <script id="gallery-seed-data" type="application/json">[]</script>
+    <script id="inventory-seed-data" type="application/json">[]</script>
+    <script id="recipes-seed-data" type="application/json">[]</script>
+    <script id="financials-seed-data" type="application/json">{"revenue": 0, "investment": 0}</script>
+
     <script type="module" src="/index.tsx"></script>
   </body>
 </html>
