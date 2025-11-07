@@ -1,4 +1,5 @@
 
+
 import React, { createContext, useReducer, Dispatch, ReactNode, useEffect, useRef } from 'react';
 import { User, Order, Financials, InventoryItem, CustomDessert, BasicProduct, Offer, GalleryImage, ProductRecipe, AppSettings } from '../types';
 import * as FirestoreService from '../firebase/firestore';
@@ -210,7 +211,7 @@ const appReducer = (state: AppState, action: Action): AppState => {
     case 'REGISTER_USER':
         // El nuevo usuario vendrá por el listener de 'SYNC_USERS'
         // Temporalmente lo establecemos para mejorar la UI inmediata
-        return { ...state, currentUser: action.payload, currentView: View.CLIENT_SHOP, notification: { message: '¡Bienvenido!', type: 'success' } };
+        return { ...state, currentUser: action.payload, currentView: View.CLIENT_SHOP, notification: { message: '¡Su cuenta fue creada con éxito, disfrute de sus propias creaciones!', type: 'success' } };
     default:
       return state;
   }
