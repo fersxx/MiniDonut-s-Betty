@@ -1,220 +1,179 @@
+import {
+    collection,
+    doc,
+    getDocs,
+    setDoc,
+    deleteDoc,
+    onSnapshot,
+    Timestamp,
+    getDoc,
+    updateDoc,
+    runTransaction,
+} from '@firebase/firestore';
+import { db } from './config';
 import { User, InventoryItem, Order, Offer, ProductRecipe, GalleryImage, AppSettings } from "../types";
 
-// --- Simulación de Firestore con localStorage ---
-
-const getCollection = <T>(name: string, seedDataId?: string): T[] => {
-    try {
-        const storedData = localStorage.getItem(`db_${name}`);
-        if (storedData) {
-            return JSON.parse(storedData).map((item: any) => {
-                // Convertir strings de fecha a objetos Date
-                if (item.orderDate) item.orderDate = new Date(item.orderDate);
-                if (item.birthday) {
-                    const parts = item.birthday.split('-');
-                    if (parts.length === 3) {
-                       // Mantener la fecha como string para evitar problemas de zona horaria en la lógica de cumpleaños
-                    }
-                }
-                return item;
-            });
+// --- Helper para convertir Timestamps ---
+const convertTimestamps = (data: any) => {
+    for (const key in data) {
+        if (data[key] instanceof Timestamp) {
+            data[key] = data[key].toDate();
         }
-        // Si no hay datos, cargar desde el script en index.html si existe
-        if (seedDataId) {
-            const seedScript = document.getElementById(seedDataId);
-            if (seedScript) {
-                const seed = JSON.parse(seedScript.textContent || '[]');
-                localStorage.setItem(`db_${name}`, JSON.stringify(seed));
-                return seed;
-            }
-        }
-        return [];
-    } catch (error) {
-        console.error(`Error al obtener la colección ${name}:`, error);
-        return [];
     }
+    return data;
 };
 
-const saveCollection = <T>(name: string, data: T[]) => {
-    localStorage.setItem(`db_${name}`, JSON.stringify(data));
-};
-
-const listeners: { [key: string]: Function[] } = {};
-
-const notifyListeners = (collectionName: string) => {
-    if (listeners[collectionName]) {
-        const data = getCollection(collectionName);
-        listeners[collectionName].forEach(callback => callback(data));
-    }
-};
-
-// --- Listeners en tiempo real (simulados) ---
+// --- Listeners en tiempo real ---
 
 export const listenToCollection = <T extends { id: string }>(
     collectionName: string,
-    callback: (data: T[]) => void,
-    seedDataId?: string
+    callback: (data: T[]) => void
 ): (() => void) => {
-    if (!listeners[collectionName]) {
-        listeners[collectionName] = [];
-    }
-    listeners[collectionName].push(callback);
+    const q = collection(db, collectionName);
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+        const data: T[] = [];
+        querySnapshot.forEach((doc) => {
+            const docData = convertTimestamps(doc.data());
+            data.push({ id: doc.id, ...docData } as T);
+        });
+        callback(data);
+    }, (error) => {
+        console.error(`Error escuchando la colección ${collectionName}:`, error);
+    });
 
-    // Enviar datos iniciales
-    setTimeout(() => callback(getCollection<T>(collectionName, seedDataId)), 0);
-
-    // Función para desuscribirse
-    return () => {
-        listeners[collectionName] = listeners[collectionName].filter(cb => cb !== callback);
-    };
+    return unsubscribe;
 };
-
 
 export const listenToSettings = (callback: (data: AppSettings) => void): (() => void) => {
-    const SETTINGS_KEY = 'db_appData_settings';
-    const defaultSettings: AppSettings = {
-        adminPhoneNumber: "5216361317125",
-        adminCardNumber: "1234-5678-9012-3456",
-        birthdayOffer: { description: "¡Postre gratis en tu día!" },
-        deliveryFee: 25
-    };
-
-    const getSettings = (): AppSettings => {
-        try {
-            const stored = localStorage.getItem(SETTINGS_KEY);
-            return stored ? JSON.parse(stored) : defaultSettings;
-        } catch {
-            return defaultSettings;
+    const settingsDocRef = doc(db, 'appData', 'settings');
+    const unsubscribe = onSnapshot(settingsDocRef, (docSnap) => {
+        if (docSnap.exists()) {
+            callback(docSnap.data() as AppSettings);
+        } else {
+            console.warn("Documento de ajustes no encontrado, usando valores por defecto.");
+            const defaultSettings: AppSettings = {
+                adminPhoneNumber: "TU_NUMERO_AQUI",
+                adminCardNumber: "TU_TARJETA_AQUI",
+                birthdayOffer: { description: "¡Postre gratis!" },
+                deliveryFee: 25
+            };
+            callback(defaultSettings);
         }
-    };
-
-    const settingsCallback = () => callback(getSettings());
-    
-    if (!listeners.settings) listeners.settings = [];
-    listeners.settings.push(settingsCallback);
-    
-    setTimeout(() => callback(getSettings()), 0); // Enviar datos iniciales
-
-    return () => {
-         listeners.settings = listeners.settings.filter(cb => cb !== settingsCallback);
-    };
+    });
+    return unsubscribe;
 };
 
+// --- Operaciones CRUD ---
 
-// --- Operaciones CRUD (simuladas) ---
+export const getUserById = async (userId: string): Promise<User | null> => {
+    const userRef = doc(db, 'users', userId);
+    const docSnap = await getDoc(userRef);
+    if (docSnap.exists()) {
+        return { id: docSnap.id, ...convertTimestamps(docSnap.data()) } as User;
+    } else {
+        return null;
+    }
+};
 
 export const addOrUpdateUser = async (user: User) => {
-    let users = getCollection<User>('users');
-    const index = users.findIndex(u => u.id === user.id);
-    if (index > -1) {
-        users[index] = { ...users[index], ...user };
-    } else {
-        users.push({ ...user, id: user.id || `user-${Date.now()}` });
-    }
-    saveCollection('users', users);
-    notifyListeners('users');
+    const userRef = doc(db, 'users', user.id);
+    const { password, ...userData } = user; // Excluye el password por seguridad
+    await setDoc(userRef, userData, { merge: true });
 };
 
 export const addOrUpdateInventoryItem = async (item: InventoryItem) => {
-    let inventory = getCollection<InventoryItem>('inventory', 'inventory-seed-data');
+    let docRef;
     if (item.id) {
-        const index = inventory.findIndex(i => i.id === item.id);
-        if (index > -1) inventory[index] = item;
+        docRef = doc(db, 'inventory', item.id);
     } else {
-        inventory.push({ ...item, id: `inv-${Date.now()}` });
+        docRef = doc(collection(db, 'inventory'));
+        item.id = docRef.id;
     }
-    saveCollection('inventory', inventory);
-    notifyListeners('inventory');
+    await setDoc(docRef, item, { merge: true });
 };
 
 export const deleteInventoryItem = async (id: string) => {
-    let inventory = getCollection<InventoryItem>('inventory', 'inventory-seed-data');
-    inventory = inventory.filter(i => i.id !== id);
-    saveCollection('inventory', inventory);
-    notifyListeners('inventory');
+    const docRef = doc(db, 'inventory', id);
+    await deleteDoc(docRef);
 };
 
 export const createOrder = async (order: Order) => {
-    const orders = getCollection<Order>('orders');
-    orders.push({ ...order, id: `ord-${Date.now()}` });
-    saveCollection('orders', orders);
-    notifyListeners('orders');
+    const docRef = doc(collection(db, 'orders'));
+    await setDoc(docRef, { ...order, id: docRef.id });
 };
 
 export const updateOrderStatus = async (orderId: string, status: Order['status'], estimatedTime?: string) => {
-    let orders = getCollection<Order>('orders');
-    const index = orders.findIndex(o => o.id === orderId);
-    if (index > -1) {
-        orders[index].status = status;
-        if (estimatedTime !== undefined) {
-             orders[index].estimatedTime = estimatedTime;
-        }
+    const docRef = doc(db, 'orders', orderId);
+    const updateData: { status: Order['status'], estimatedTime?: string } = { status };
+    if (estimatedTime !== undefined) {
+        updateData.estimatedTime = estimatedTime;
     }
-    saveCollection('orders', orders);
-    notifyListeners('orders');
+    await updateDoc(docRef, updateData);
 };
 
+
 export const saveOffer = async (offer: Offer) => {
-    let offers = getCollection<Offer>('offers', 'offers-seed-data');
+    let docRef;
     if (offer.id) {
-        const index = offers.findIndex(o => o.id === offer.id);
-        if (index > -1) offers[index] = offer;
+        docRef = doc(db, 'offers', offer.id);
     } else {
-        offers.push({ ...offer, id: `off-${Date.now()}` });
+        docRef = doc(collection(db, 'offers'));
+        offer.id = docRef.id;
     }
-    saveCollection('offers', offers);
-    notifyListeners('offers');
+    await setDoc(docRef, offer, { merge: true });
 };
 
 export const deleteOffer = async (id: string) => {
-    let offers = getCollection<Offer>('offers', 'offers-seed-data').filter(o => o.id !== id);
-    saveCollection('offers', offers);
-    notifyListeners('offers');
+    const docRef = doc(db, 'offers', id);
+    await deleteDoc(docRef);
 };
 
 export const saveRecipe = async (recipe: ProductRecipe) => {
-    let recipes = getCollection<ProductRecipe>('productRecipes', 'recipes-seed-data');
+     let docRef;
     if (recipe.id) {
-        const index = recipes.findIndex(r => r.id === recipe.id);
-        if (index > -1) recipes[index] = recipe;
+        docRef = doc(db, 'productRecipes', recipe.id);
     } else {
-        recipes.push({ ...recipe, id: `rec-${Date.now()}` });
+        docRef = doc(collection(db, 'productRecipes'));
+        recipe.id = docRef.id;
     }
-    saveCollection('productRecipes', recipes);
-    notifyListeners('productRecipes');
+    await setDoc(docRef, recipe, { merge: true });
 };
 
 export const deleteRecipe = async (id: string) => {
-    let recipes = getCollection<ProductRecipe>('productRecipes', 'recipes-seed-data').filter(r => r.id !== id);
-    saveCollection('productRecipes', recipes);
-    notifyListeners('productRecipes');
+    const docRef = doc(db, 'productRecipes', id);
+    await deleteDoc(docRef);
 };
 
 export const addGalleryImage = async (image: Omit<GalleryImage, 'id' | 'likes'>) => {
-    const gallery = getCollection<GalleryImage>('gallery', 'gallery-seed-data');
-    gallery.push({ ...image, id: `gal-${Date.now()}`, likes: 0 });
-    saveCollection('gallery', gallery);
-    notifyListeners('gallery');
+    const docRef = doc(collection(db, 'gallery'));
+    const newImage: GalleryImage = { ...image, id: docRef.id, likes: 0 };
+    await setDoc(docRef, newImage);
 };
 
 export const deleteGalleryImage = async (id: string) => {
-    let gallery = getCollection<GalleryImage>('gallery', 'gallery-seed-data').filter(i => i.id !== id);
-    saveCollection('gallery', gallery);
-    notifyListeners('gallery');
+    const docRef = doc(db, 'gallery', id);
+    await deleteDoc(docRef);
 };
 
 export const toggleGalleryLike = async (imageId: string, userId: string, isLiked: boolean, currentLikes: number) => {
-    let gallery = getCollection<GalleryImage>('gallery', 'gallery-seed-data');
-    const imgIndex = gallery.findIndex(i => i.id === imageId);
-    if (imgIndex > -1) {
-        gallery[imgIndex].likes = isLiked ? Math.max(0, currentLikes - 1) : currentLikes + 1;
-        saveCollection('gallery', gallery);
-        notifyListeners('gallery');
-    }
+    const imageRef = doc(db, 'gallery', imageId);
+    await runTransaction(db, async (transaction) => {
+        const userRef = doc(db, 'users', userId);
+        const userDoc = await transaction.get(userRef);
+        if (!userDoc.exists()) throw "El documento del usuario no existe.";
+        
+        const likedImages = userDoc.data().likedImages || [];
+        const newLikesCount = isLiked ? Math.max(0, currentLikes - 1) : currentLikes + 1;
+        const newLikedImages = isLiked 
+            ? likedImages.filter((id: string) => id !== imageId)
+            : [...likedImages, imageId];
+        
+        transaction.update(imageRef, { likes: newLikesCount });
+        transaction.update(userRef, { likedImages: newLikedImages });
+    });
 };
 
 export const saveSettings = async (settings: AppSettings) => {
-    localStorage.setItem('db_appData_settings', JSON.stringify(settings));
-    if(listeners.settings) {
-        listeners.settings.forEach(cb => cb(settings));
-    }
+    const docRef = doc(db, 'appData', 'settings');
+    await setDoc(docRef, settings, { merge: true });
 };

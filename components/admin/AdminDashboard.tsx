@@ -599,20 +599,14 @@ const AdminDashboard: React.FC = () => {
     
     const handleAdminPasswordSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!state.currentUser) return;
         if (adminPassword.newPassword !== adminPassword.confirmPassword) {
             dispatch({ type: 'SET_NOTIFICATION', payload: { message: 'Las nuevas contraseñas no coinciden.', type: 'error' } });
             return;
         }
-        if (state.currentUser.password !== adminPassword.currentPassword) {
-            dispatch({ type: 'SET_NOTIFICATION', payload: { message: 'La contraseña actual es incorrecta.', type: 'error' } });
-            return;
-        }
         dispatch({
             type: 'UPDATE_USER_PASSWORD',
-            payload: { id: state.currentUser.id, newPassword: adminPassword.newPassword }
+            payload: { currentPassword: adminPassword.currentPassword, newPassword: adminPassword.newPassword }
         });
-        dispatch({ type: 'SET_NOTIFICATION', payload: { message: 'Contraseña actualizada.', type: 'success' } });
         setAdminPassword({ currentPassword: '', newPassword: '', confirmPassword: '' });
     };
 

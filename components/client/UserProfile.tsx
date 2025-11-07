@@ -129,20 +129,17 @@ const UserProfile: React.FC = () => {
             dispatch({ type: 'SET_NOTIFICATION', payload: { message: 'La nueva contraseña debe tener al menos 6 caracteres.', type: 'error' } });
             return;
         }
-        if (currentUser.password !== passwordData.currentPassword) {
-            dispatch({ type: 'SET_NOTIFICATION', payload: { message: 'La contraseña actual es incorrecta.', type: 'error' } });
-            return;
-        }
 
+        // FIX: The asyncDispatch in AppContext handles success/error notifications from AuthService.
+        // The payload was also incorrect. It should send currentPassword and newPassword.
         dispatch({
             type: 'UPDATE_USER_PASSWORD',
             payload: {
-                id: currentUser.id,
+                currentPassword: passwordData.currentPassword,
                 newPassword: passwordData.newPassword
             }
         });
 
-        dispatch({ type: 'SET_NOTIFICATION', payload: { message: '¡Contraseña cambiada con éxito!', type: 'success' } });
         setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
     };
 

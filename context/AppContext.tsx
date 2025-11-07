@@ -1,8 +1,7 @@
-
-
 import React, { createContext, useReducer, Dispatch, ReactNode, useEffect, useRef } from 'react';
 import { User, Order, Financials, InventoryItem, CustomDessert, BasicProduct, Offer, GalleryImage, ProductRecipe, AppSettings } from '../types';
 import * as FirestoreService from '../firebase/firestore';
+import * as AuthService from '../firebase/auth';
 
 export enum View {
   LANDING,
@@ -63,10 +62,12 @@ type Action =
   | { type: 'CLEAR_CART' }
   | { type: 'REGISTER_USER'; payload: any }
   | { type: 'LOGIN_USER'; payload: { email: string; password: string } }
-  | { type: 'LOGIN_ADMIN'; payload: string }
+  | { type: 'LOGIN_SUCCESS'; payload: User }
+  | { type: 'LOGIN_FAILURE'; payload: string }
   | { type: 'LOGOUT_USER' }
+  | { type: 'LOGOUT_SUCCESS' }
   | { type: 'UPDATE_USER_PROFILE'; payload: { id: string; data: Partial<User> } }
-  | { type: 'UPDATE_USER_PASSWORD'; payload: { id: string; newPassword: string } }
+  | { type: 'UPDATE_USER_PASSWORD'; payload: { currentPassword: string, newPassword: string } }
   | { type: 'MARK_BIRTHDAY_NOTIFIED'; payload: { userId: string, year: number } }
   | { type: 'SAVE_INVENTORY_ITEM'; payload: InventoryItem }
   | { type: 'DELETE_INVENTORY_ITEM'; payload: string }
@@ -93,13 +94,12 @@ type Action =
 const appReducer = (state: AppState, action: Action): AppState => {
   switch (action.type) {
     case 'SYNC_USERS': {
-      // Si el usuario actual existe en la nueva lista de usuarios, actualízalo
       const updatedCurrentUser = state.currentUser ? action.payload.find(u => u.id === state.currentUser?.id) || null : state.currentUser;
       return { ...state, users: action.payload, currentUser: updatedCurrentUser };
     }
     case 'SYNC_INVENTORY': {
       const inventory = action.payload;
-      const investment = inventory.reduce((sum, item) => sum + (item.cost * (item.quantity / (item.packageSize || 1))), 0); // Costo aprox del inventario actual
+      const investment = inventory.reduce((sum, item) => sum + (item.cost * (item.quantity / (item.packageSize || 1))), 0);
       return { ...state, inventory, financials: { ...state.financials, investment } };
     }
     case 'SYNC_ORDERS': {
@@ -135,61 +135,40 @@ const appReducer = (state: AppState, action: Action): AppState => {
       return { ...state, currentView: action.payload, notification: null };
     case 'SET_NOTIFICATION':
         return { ...state, notification: action.payload };
-    case 'LOGOUT_USER':
+    
+    case 'LOGIN_SUCCESS': {
+        const user = action.payload;
+        const nextView = user.role === 'admin' ? View.ADMIN_DASHBOARD : View.CLIENT_SHOP;
+        const isNewRegistration = state.currentView === View.CLIENT_REGISTER;
+        return { 
+            ...state, 
+            currentUser: user, 
+            currentView: nextView, 
+            notification: isNewRegistration 
+                ? { message: '¡Su cuenta fue creada con éxito, disfrute de sus propias creaciones!', type: 'success' }
+                : null
+        };
+    }
+    case 'LOGIN_FAILURE':
+        return { ...state, notification: { message: action.payload, type: 'error' } };
+
+    case 'LOGOUT_SUCCESS':
         return { ...state, currentUser: null, currentView: View.LANDING, shoppingCart: [] };
-    case 'LOGIN_USER': {
-        const { email, password } = action.payload;
-        const user = state.users.find(u => u.email.toLowerCase() === email.toLowerCase() && u.password === password);
-        if (user) {
-            const nextView = user.role === 'admin' ? View.ADMIN_DASHBOARD : View.CLIENT_SHOP;
-            return { ...state, currentUser: user, currentView: nextView, notification: null };
-        }
-        return { ...state, notification: { message: 'Correo o contraseña incorrectos.', type: 'error' } };
-    }
-    case 'LOGIN_ADMIN': {
-        const password = action.payload;
-        // Buscar administrador en la BD
-        const adminUser = state.users.find(u => u.role === 'admin');
-        const adminPassword = adminUser ? adminUser.password : 'fer123'; // Contraseña por defecto solo si no hay admin
-        
-        if (password === adminPassword) {
-            const currentUser = adminUser || {
-                 id: 'temp-admin',
-                 role: 'admin',
-                 name: 'Administrador',
-                 email: 'admin@minidonuts.com',
-                 password: 'fer123',
-                 birthday: '',
-                 phone: '',
-                 address: '',
-                 likedImages: []
-            };
-            return { ...state, currentUser, currentView: View.ADMIN_DASHBOARD, notification: null };
-        }
-        return { ...state, notification: { message: 'Contraseña de administrador incorrecta.', type: 'error' } };
-    }
+
     case 'ADD_TO_CART': {
       const newItem = action.payload;
       let updatedCart = [...state.shoppingCart];
-      
       if (newItem.isCustom) {
-          // Lógica para items personalizados
           const customItem = newItem as CustomDessert;
-          // Crear clave única basada en ingredientes
-          const getCustomDessertKey = (dessert: CustomDessert) => {
-              const ids = [dessert.base.id, dessert.filling?.id, dessert.frosting?.id, ...dessert.toppings.map(t => t.id), ...dessert.decorations.map(d => d.id)].filter(Boolean).sort();
-              return ids.join('-');
-          };
+          const getCustomDessertKey = (dessert: CustomDessert) => [dessert.base.id, dessert.filling?.id, dessert.frosting?.id, ...dessert.toppings.map(t => t.id), ...dessert.decorations.map(d => d.id)].filter(Boolean).sort().join('-');
           const newItemKey = getCustomDessertKey(customItem);
           const existingIndex = updatedCart.findIndex(item => item.isCustom && getCustomDessertKey(item as CustomDessert) === newItemKey);
-          
           if (existingIndex > -1) {
               updatedCart[existingIndex] = { ...updatedCart[existingIndex], quantity: updatedCart[existingIndex].quantity + newItem.quantity };
           } else {
               updatedCart.push(newItem);
           }
       } else {
-          // Lógica para productos básicos
           const basicItem = newItem as BasicProduct;
           const existingIndex = updatedCart.findIndex(item => !item.isCustom && item.id === basicItem.id);
           if (existingIndex > -1) {
@@ -207,11 +186,6 @@ const appReducer = (state: AppState, action: Action): AppState => {
     case 'REORDER':
         return { ...state, shoppingCart: action.payload, currentView: View.CLIENT_CART, notification: { message: '¡Pedido añadido al carrito!', type: 'success' } };
     
-    // Para acciones asíncronas, actualizamos el estado local solo si es necesario inmediatamente (optimistic update)
-    case 'REGISTER_USER':
-        // El nuevo usuario vendrá por el listener de 'SYNC_USERS'
-        // Temporalmente lo establecemos para mejorar la UI inmediata
-        return { ...state, currentUser: action.payload, currentView: View.CLIENT_SHOP, notification: { message: '¡Su cuenta fue creada con éxito, disfrute de sus propias creaciones!', type: 'success' } };
     default:
       return state;
   }
@@ -227,96 +201,66 @@ export const AppContext = createContext<{
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [state, dispatch] = useReducer(appReducer, initialState);
-  const stateRef = useRef(state); // Referencia para acceder al estado actual en async functions
+  const stateRef = useRef(state);
 
   useEffect(() => {
       stateRef.current = state;
   }, [state]);
   
-  // Configurar listeners de Firestore al montar el componente
   useEffect(() => {
       const unsubscribers: (() => void)[] = [];
-
-      unsubscribers.push(FirestoreService.listenToCollection<User>('users', (data) => {
-          dispatch({ type: 'SYNC_USERS', payload: data });
-      }));
-      
-      unsubscribers.push(FirestoreService.listenToCollection<InventoryItem>('inventory', (data) => {
-          dispatch({ type: 'SYNC_INVENTORY', payload: data });
-      }));
-      
-      unsubscribers.push(FirestoreService.listenToCollection<Order>('orders', (data) => {
-          // Convertir fechas si vienen como Timestamp (ya manejado en listenToCollection, pero doble check)
-          dispatch({ type: 'SYNC_ORDERS', payload: data });
-      }));
-
-      unsubscribers.push(FirestoreService.listenToCollection<Offer>('offers', (data) => {
-          dispatch({ type: 'SYNC_OFFERS', payload: data });
-      }));
-
-      unsubscribers.push(FirestoreService.listenToCollection<ProductRecipe>('productRecipes', (data) => {
-          dispatch({ type: 'SYNC_RECIPES', payload: data });
-      }));
-
-      unsubscribers.push(FirestoreService.listenToCollection<GalleryImage>('gallery', (data) => {
-          dispatch({ type: 'SYNC_GALLERY', payload: data });
-      }));
-      
+      unsubscribers.push(FirestoreService.listenToCollection<User>('users', (data) => dispatch({ type: 'SYNC_USERS', payload: data })));
+      unsubscribers.push(FirestoreService.listenToCollection<InventoryItem>('inventory', (data) => dispatch({ type: 'SYNC_INVENTORY', payload: data })));
+      unsubscribers.push(FirestoreService.listenToCollection<Order>('orders', (data) => dispatch({ type: 'SYNC_ORDERS', payload: data })));
+      unsubscribers.push(FirestoreService.listenToCollection<Offer>('offers', (data) => dispatch({ type: 'SYNC_OFFERS', payload: data })));
+      unsubscribers.push(FirestoreService.listenToCollection<ProductRecipe>('productRecipes', (data) => dispatch({ type: 'SYNC_RECIPES', payload: data })));
+      unsubscribers.push(FirestoreService.listenToCollection<GalleryImage>('gallery', (data) => dispatch({ type: 'SYNC_GALLERY', payload: data })));
       unsubscribers.push(FirestoreService.listenToSettings((data) => {
           dispatch({ type: 'SYNC_SETTINGS', payload: data });
-          dispatch({ type: 'SET_LOADING', payload: false }); // Carga inicial completa
+          dispatch({ type: 'SET_LOADING', payload: false });
       }));
-
-      return () => {
-          unsubscribers.forEach(unsub => unsub());
-      };
+      return () => unsubscribers.forEach(unsub => unsub());
   }, []);
 
-  // Middleware asíncrono para el dispatch
   const asyncDispatch: Dispatch<Action> = async (action) => {
       try {
           switch (action.type) {
               case 'REGISTER_USER': {
-                 const formData = action.payload;
-                 if (stateRef.current.users.some(u => u.email.toLowerCase() === formData.email.toLowerCase())) {
-                    dispatch({ type: 'SET_NOTIFICATION', payload: { message: 'Este correo electrónico ya está registrado.', type: 'error' } });
-                    return;
+                 try {
+                    const newUser = await AuthService.registerWithEmailAndPassword(action.payload);
+                    dispatch({ type: 'LOGIN_SUCCESS', payload: newUser });
+                 } catch (error: any) {
+                    const message = error.code === 'auth/email-already-in-use' ? 'Este correo electrónico ya está registrado.' : 'Error al registrar la cuenta.';
+                    dispatch({ type: 'LOGIN_FAILURE', payload: message });
                  }
-                 const newUser: User = {
-                    id: `user-${Date.now()}`,
-                    name: formData.name,
-                    email: formData.email,
-                    password: formData.password,
-                    birthday: formData.birthday,
-                    phone: formData.phone,
-                    address: formData.address,
-                    role: 'client',
-                    likedImages: [],
-                 };
-                 await FirestoreService.addOrUpdateUser(newUser);
-                 // Notificar éxito localmente (el listener actualizará la lista global)
-                 dispatch({ type: 'REGISTER_USER', payload: newUser });
                  break;
+              }
+              case 'LOGIN_USER': {
+                  const { email, password } = action.payload;
+                  try {
+                      const user = await AuthService.loginWithEmailAndPassword(email, password);
+                      dispatch({ type: 'LOGIN_SUCCESS', payload: user });
+                  } catch (error: any) {
+                      dispatch({ type: 'LOGIN_FAILURE', payload: 'Correo o contraseña incorrectos.' });
+                  }
+                  break;
+              }
+              case 'LOGOUT_USER': {
+                  await AuthService.logout();
+                  dispatch({ type: 'LOGOUT_SUCCESS' });
+                  break;
               }
               case 'PLACE_ORDER':
                   const orderData = action.payload;
                   await FirestoreService.createOrder(orderData as Order);
-                  // Reducir stock aquí (lógica simplificada en cliente)
                   for (const item of orderData.items) {
                       if (item.isCustom) {
-                         // Reducir base, frosting, toppings...
                          const addons = [item.base, item.filling, item.frosting, ...item.toppings, ...item.decorations].filter(Boolean);
                          for (const addon of addons) {
                              const invItem = stateRef.current.inventory.find(i => i.id === addon!.id);
-                             if (invItem) {
-                                 await FirestoreService.addOrUpdateInventoryItem({
-                                     ...invItem,
-                                     quantity: Math.max(0, invItem.quantity - item.quantity)
-                                 });
-                             }
+                             if (invItem) await FirestoreService.addOrUpdateInventoryItem({ ...invItem, quantity: Math.max(0, invItem.quantity - item.quantity) });
                          }
                       } else {
-                          // Reducir ingredientes de la receta
                           const basicProd = item as BasicProduct;
                           if (basicProd.recipeId) {
                               const recipe = stateRef.current.productRecipes.find(r => r.id === basicProd.recipeId);
@@ -325,10 +269,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                                       const invItem = stateRef.current.inventory.find(i => i.id === ing.ingredientId);
                                       if (invItem) {
                                           const deduction = (ing.amount / recipe.recipeYield) * item.quantity;
-                                          await FirestoreService.addOrUpdateInventoryItem({
-                                              ...invItem,
-                                              quantity: Math.max(0, invItem.quantity - deduction)
-                                          });
+                                          await FirestoreService.addOrUpdateInventoryItem({ ...invItem, quantity: Math.max(0, invItem.quantity - deduction) });
                                       }
                                   }
                               }
@@ -371,42 +312,35 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                   if (image && user) {
                       const isLiked = user.likedImages?.includes(imageId) ?? false;
                       await FirestoreService.toggleGalleryLike(imageId, userId, isLiked, image.likes);
-                      const updatedLikedList = isLiked 
-                        ? (user.likedImages || []).filter(id => id !== imageId)
-                        : [...(user.likedImages || []), imageId];
-                      await FirestoreService.addOrUpdateUser({ ...user, likedImages: updatedLikedList });
                   }
                   break;
               }
               case 'UPDATE_USER_PROFILE': {
-                  const currentUser = stateRef.current.currentUser;
-                  if (currentUser) {
-                      await FirestoreService.addOrUpdateUser({ ...currentUser, ...action.payload.data });
+                  if (stateRef.current.currentUser) {
+                      await FirestoreService.addOrUpdateUser({ ...stateRef.current.currentUser, ...action.payload.data });
                   }
-                  dispatch({ type: 'UPDATE_USER_PROFILE', payload: action.payload });
                   break;
               }
               case 'UPDATE_USER_PASSWORD': {
-                  const currentUser = stateRef.current.currentUser;
-                  if (currentUser) {
-                      await FirestoreService.addOrUpdateUser({ ...currentUser, password: action.payload.newPassword });
+                  const { currentPassword, newPassword } = action.payload;
+                  try {
+                      await AuthService.updateUserPassword(currentPassword, newPassword);
+                      dispatch({ type: 'SET_NOTIFICATION', payload: { message: 'Contraseña actualizada con éxito.', type: 'success' } });
+                  } catch (error: any) {
+                       const message = error.code === 'auth/wrong-password' ? 'La contraseña actual es incorrecta.' : 'Error al actualizar la contraseña.';
+                       dispatch({ type: 'SET_NOTIFICATION', payload: { message, type: 'error' } });
                   }
-                  dispatch({ type: 'UPDATE_USER_PASSWORD', payload: action.payload });
                   break;
               }
               case 'MARK_BIRTHDAY_NOTIFIED': {
                   const user = stateRef.current.users.find(u => u.id === action.payload.userId);
-                  if (user) {
-                      await FirestoreService.addOrUpdateUser({ ...user, lastBirthdayNotifiedYear: action.payload.year });
-                  }
-                  dispatch(action); // Actualizar estado local también
+                  if (user) await FirestoreService.addOrUpdateUser({ ...user, lastBirthdayNotifiedYear: action.payload.year });
                   break;
               }
               case 'SAVE_SETTINGS':
                   await FirestoreService.saveSettings(action.payload);
                   break;
               default:
-                  // Para acciones síncronas o locales
                   dispatch(action);
           }
       } catch (error) {

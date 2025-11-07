@@ -5,7 +5,7 @@ export interface User {
   role: 'client' | 'admin';
   name: string;
   email: string;
-  password?: string;
+  password?: string; // Only used for creation, not stored in Firestore
   birthday: string;
   phone: string;
   address: string;
