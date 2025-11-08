@@ -1,4 +1,5 @@
 // FIX: Alias firebase auth imports to prevent circular dependency/module resolution errors.
+// FIX: Use scoped package import '@firebase/auth' to avoid module resolution conflict with the local file 'firebase/auth.ts'.
 import {
     createUserWithEmailAndPassword as firebaseCreateUserWithEmailAndPassword,
     signInWithEmailAndPassword as firebaseSignInWithEmailAndPassword,
@@ -6,7 +7,7 @@ import {
     updatePassword as firebaseUpdatePassword,
     EmailAuthProvider as firebaseEmailAuthProvider,
     reauthenticateWithCredential as firebaseReauthenticateWithCredential,
-} from 'firebase/auth';
+} from '@firebase/auth';
 import { collection, getDocs } from '@firebase/firestore';
 import { auth, db } from './config';
 import { addOrUpdateUser, getUserById } from './firestore';

@@ -1,8 +1,10 @@
 // Importa las funciones que necesitas de los SDKs
 import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+// FIX: Use scoped package import to avoid module resolution conflict with local 'firebase/auth.ts' file.
+import { getAuth } from "@firebase/auth";
 // FIX: Use modular firestore import to match other firebase imports
-import { getFirestore } from "firebase/firestore";
+// FIX: Use scoped package import to avoid module resolution conflict with local 'firebase/firestore.ts' file.
+import { getFirestore } from "@firebase/firestore";
 
 // La configuración de tu app web de Firebase
 const firebaseConfig = {

@@ -19,18 +19,12 @@ const LandingPage: React.FC = () => {
               El lugar donde tus antojos dulces se hacen realidad. Personaliza, ordena y disfruta.
           </p>
 
-          <div className="mt-10 flex flex-col sm:flex-row justify-center items-center gap-4">
+          <div className="mt-10 flex justify-center">
               <button
                 onClick={() => dispatch({ type: 'SET_VIEW', payload: View.CLIENT_LOGIN })}
                 className="w-full sm:w-auto bg-rose-600 hover:bg-rose-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transform hover:scale-105 transition-all duration-300"
               >
-                Entrar como Cliente
-              </button>
-              <button
-                onClick={() => dispatch({ type: 'SET_VIEW', payload: View.CLIENT_LOGIN })}
-                className="w-full sm:w-auto bg-stone-700 hover:bg-stone-800 text-white font-bold py-3 px-8 rounded-full shadow-lg transform hover:scale-105 transition-all duration-300"
-              >
-                Entrar como Administrador
+                Iniciar Sesión
               </button>
           </div>
         </div>
